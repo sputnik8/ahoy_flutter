@@ -150,7 +150,15 @@ class Ahoy {
   /// with the current visit. If no visit is tracked, a [NoVisitError] will be thrown.
   /// Optionally, you can pass additional parameters to be sent to the server.
   void trackSingle(String eventName, {Map<String, dynamic>? properties}) {
-    track([Event(name: eventName, properties: properties ?? {})]);
+    track(
+      [
+        Event(
+          name: eventName,
+          properties: properties ?? {},
+          platfrom: configuration.environment.platform,
+        ),
+      ],
+    );
   }
 
   /// Authenticate the current visit with a user ID.

@@ -10,8 +10,9 @@ class Event {
     required this.name,
     required this.properties,
     DateTime? time,
+    String? platfrom,
   })  : time = time ?? DateTime.now(),
-        platfrom = 'app';
+        platfrom = platfrom ?? 'app';
 
   factory Event.fromJson(Map<String, dynamic> json) {
     return Event(
