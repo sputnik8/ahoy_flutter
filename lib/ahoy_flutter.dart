@@ -36,7 +36,8 @@ class Ahoy {
   Configuration configuration;
 
   /// The token manager used to store and retrieve the visitor and visit tokens
-  /// from the device's storage. By default, it uses the [TokenManager] class.
+  /// from the device's storage. By default, it uses the [TokenManager] class
+  /// with the visitDuration from the configuration.
   /// You can provide your own implementation by extending the [AhoyTokenManager]
   AhoyTokenManager storage;
 
@@ -47,8 +48,9 @@ class Ahoy {
     required this.configuration,
     this.headers = const {},
     this.requestInterceptors = const [],
-    AhoyTokenManager tokenStorage = const TokenManager(),
-  }) : storage = tokenStorage;
+    AhoyTokenManager? tokenStorage,
+  }) : storage = tokenStorage ??
+            TokenManager(expiryPeriod: configuration.visitDuration);
 
   /// Track a visit to the server and return a [Visit] object
   /// with the visitor and visit tokens.
@@ -155,7 +157,7 @@ class Ahoy {
         Event(
           name: eventName,
           properties: properties ?? {},
-          platfrom: configuration.environment.platform,
+          platform: configuration.environment.platform,
         ),
       ],
     );
@@ -221,11 +223,9 @@ class Ahoy {
     }
 
     final handledRequest = await configuration.urlRequestHandler(request);
-
-    return Response.fromStream(handledRequest)
-      ..then(
-        (response) => validateResponse(response),
-      );
+    final response = await Response.fromStream(handledRequest);
+    validateResponse(response);
+    return response;
   }
 
   Visit? get visit => currentVisit;

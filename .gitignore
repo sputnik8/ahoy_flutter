@@ -27,3 +27,6 @@ asset/*
 **/doc/api/
 .dart_tool/
 build/
+
+# FVM Version Cache
+.fvm/
