@@ -29,6 +29,7 @@ class Ahoy {
   Visit? currentVisit;
   final Map<String, String> headers;
   final List<RequestInterceptor> requestInterceptors;
+  Timer? _visitExpirationTimer;
 
   /// The configuration object for the Ahoy instance. It contains the base URL
   /// of the server, the paths for the visits and events endpoints, and the
@@ -102,6 +103,7 @@ class Ahoy {
 
     if (response.statusCode == 200) {
       currentVisit = visit;
+      _startVisitExpirationTimer();
       log('Visit tracked: ${currentVisit?.toJson()}', name: 'Ahoy');
       return currentVisit!;
     } else if (response.statusCode == 422) {
@@ -229,4 +231,21 @@ class Ahoy {
   }
 
   Visit? get visit => currentVisit;
+
+  void _startVisitExpirationTimer() {
+    _visitExpirationTimer?.cancel();
+    _visitExpirationTimer = Timer(configuration.visitDuration, () async {
+      if (currentVisit != null) {
+        log('Visit expired, creating new visit', name: 'Ahoy');
+        await trackVisit(visitorToken: currentVisit!.visitorToken);
+      }
+    });
+  }
+
+  void dispose() {
+    _visitExpirationTimer?.cancel();
+    for (final subscription in cancellables) {
+      subscription.cancel();
+    }
+  }
 }
