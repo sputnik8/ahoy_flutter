@@ -6,6 +6,7 @@ export 'src/event.dart';
 export 'src/request_interceptor.dart';
 export 'src/token_manager.dart';
 export 'src/visit.dart';
+export 'src/visit_change.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -20,16 +21,24 @@ import 'package:ahoy_flutter/src/request_interceptor.dart';
 import 'package:ahoy_flutter/src/token_manager.dart';
 
 import 'package:ahoy_flutter/src/visit.dart';
+import 'package:ahoy_flutter/src/visit_change.dart';
 
 import 'package:http/http.dart';
 
 /// The main class of the Ahoy library. It is used to track visits and events
 /// to a server.
 class Ahoy {
-  Visit? currentVisit;
+  Visit? _currentVisit;
   final Map<String, String> headers;
   final List<RequestInterceptor> requestInterceptors;
   Timer? _visitExpirationTimer;
+
+  final _visitController = StreamController<VisitChange>.broadcast();
+
+  /// Stream of visit changes. Emits whenever a visit is created or renewed.
+  Stream<VisitChange> get visitStream => _visitController.stream;
+
+  Visit? get currentVisit => _currentVisit;
 
   /// The configuration object for the Ahoy instance. It contains the base URL
   /// of the server, the paths for the visits and events endpoints, and the
@@ -102,8 +111,22 @@ class Ahoy {
     );
 
     if (response.statusCode == 200) {
-      currentVisit = visit;
+      final previousVisit = _currentVisit;
+      _currentVisit = visit;
       _startVisitExpirationTimer();
+
+      if (previousVisit?.visitToken != visit.visitToken) {
+        _visitController.add(
+          VisitChange(
+            visit: visit,
+            reason: resetVisit
+                ? VisitChangeReason.reset
+                : previousVisit != null
+                    ? VisitChangeReason.expired
+                    : VisitChangeReason.initial,
+          ),
+        );
+      }
       log('Visit tracked: ${currentVisit?.toJson()}', name: 'Ahoy');
       return currentVisit!;
     } else if (response.statusCode == 422) {
@@ -183,7 +206,7 @@ class Ahoy {
       body: jsonEncode(params),
     );
     if (response.statusCode == 200) {
-      currentVisit = currentVisit?.copyWith(userId: userId);
+      _currentVisit = _currentVisit?.copyWith(userId: userId);
       log('Visit authenticated: $userId', name: 'Ahoy');
       log('Response: ${response.body}', name: 'Ahoy');
     } else {
@@ -244,6 +267,7 @@ class Ahoy {
 
   void dispose() {
     _visitExpirationTimer?.cancel();
+    _visitController.close();
     for (final subscription in cancellables) {
       subscription.cancel();
     }
