@@ -2,71 +2,95 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:json_annotation/json_annotation.dart';
 import 'package:uuid/uuid.dart';
 
-part 'expiring_persisted.g.dart';
-
-@JsonSerializable(fieldRename: FieldRename.snake, includeIfNull: false)
-class DatedStorageContainer<T> {
-  final DateTime storageDate;
-
-  @JsonKey(fromJson: _fromJson, toJson: _toJson)
-  final T value;
-
-  DatedStorageContainer({required this.storageDate, required this.value});
-
-  factory DatedStorageContainer.fromJson(Map<String, dynamic> json) =>
-      _$DatedStorageContainerFromJson(json);
-
-  Map<String, dynamic> toJson() => _$DatedStorageContainerToJson(this);
-
-  static T _fromJson<T>(dynamic json) => json as T;
-  static dynamic _toJson<T>(T object) => object;
-}
-
-class ExpiringPersisted<T> {
+class ExpiringPersistedUuid {
   final String key;
   final Duration? expiryPeriod;
 
-  const ExpiringPersisted({
-    required this.key,
-    this.expiryPeriod,
-  });
+  static final Map<String, Completer<String>> _pendingRequests = {};
+  static final Map<String, _CachedValue> _cache = {};
 
-  Future<T> get value async {
+  ExpiringPersistedUuid({required this.key, this.expiryPeriod});
+
+  Future<String> get value async {
+    final cached = _cache[key];
+    if (cached != null && !_isExpired(cached.storageDate)) {
+      return cached.value;
+    }
+
+    if (_pendingRequests.containsKey(key)) {
+      return _pendingRequests[key]!.future;
+    }
+
+    final completer = Completer<String>();
+    _pendingRequests[key] = completer;
+
+    try {
+      final result = await _loadOrCreate();
+      completer.complete(result);
+      return result;
+    } catch (e) {
+      completer.completeError(e);
+      rethrow;
+    } finally {
+      _pendingRequests.remove(key);
+    }
+  }
+
+  bool _isExpired(DateTime storageDate) {
+    if (expiryPeriod == null) return false;
+    return DateTime.now().toUtc().isAfter(storageDate.add(expiryPeriod!));
+  }
+
+  Future<String> _loadOrCreate() async {
     final prefs = await SharedPreferences.getInstance();
     final data = prefs.getString(key);
+    final currDate = DateTime.now().toUtc();
+
     if (data == null) {
-      final container = DatedStorageContainer(
-        storageDate: DateTime.now(),
-        value: const Uuid().v4() as T,
-      );
-      prefs.setString(key, jsonEncode(container.toJson()));
-      return container.value;
+      return await _createAndStore(prefs, currDate);
     }
-    final container = DatedStorageContainer.fromJson(jsonDecode(data));
-    if (expiryPeriod != null &&
-        DateTime.now().isAfter(
-          container.storageDate.add(expiryPeriod!),
-        )) {
-      final newContainer = DatedStorageContainer<T>(
-        storageDate: DateTime.now(),
-        value: const Uuid().v4() as T,
-      );
-      await prefs.setString(key, jsonEncode(newContainer.toJson()));
-      return newContainer.value;
+
+    try {
+      final json = jsonDecode(data) as Map<String, dynamic>;
+      final storageDate = DateTime.parse(json['storage_date'] as String);
+      final storedValue = json['value'] as String;
+
+      if (_isExpired(storageDate)) {
+        return await _createAndStore(prefs, currDate);
+      }
+
+      _cache[key] = _CachedValue(value: storedValue, storageDate: storageDate);
+      return storedValue;
+    } catch (e) {
+      return await _createAndStore(prefs, currDate);
     }
-    return container.value;
+  }
+
+  Future<String> _createAndStore(
+    SharedPreferences prefs,
+    DateTime currDate,
+  ) async {
+    final newValue = const Uuid().v4();
+    final container = {
+      'storage_date': currDate.toIso8601String(),
+      'value': newValue,
+    };
+    await prefs.setString(key, jsonEncode(container));
+    _cache[key] = _CachedValue(value: newValue, storageDate: currDate);
+    return newValue;
+  }
+
+  static void clearCache() {
+    _cache.clear();
+    _pendingRequests.clear();
   }
 }
 
-class GenericJsonConverter<T> implements JsonConverter<T, dynamic> {
-  const GenericJsonConverter();
+class _CachedValue {
+  final String value;
+  final DateTime storageDate;
 
-  @override
-  T fromJson(dynamic json) => json as T;
-
-  @override
-  dynamic toJson(T object) => object;
+  _CachedValue({required this.value, required this.storageDate});
 }

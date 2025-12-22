@@ -6,6 +6,7 @@ export 'src/event.dart';
 export 'src/request_interceptor.dart';
 export 'src/token_manager.dart';
 export 'src/visit.dart';
+export 'src/visit_change.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -20,15 +21,24 @@ import 'package:ahoy_flutter/src/request_interceptor.dart';
 import 'package:ahoy_flutter/src/token_manager.dart';
 
 import 'package:ahoy_flutter/src/visit.dart';
+import 'package:ahoy_flutter/src/visit_change.dart';
 
 import 'package:http/http.dart';
 
 /// The main class of the Ahoy library. It is used to track visits and events
 /// to a server.
 class Ahoy {
-  Visit? currentVisit;
+  Visit? _currentVisit;
   final Map<String, String> headers;
   final List<RequestInterceptor> requestInterceptors;
+  Timer? _visitExpirationTimer;
+
+  final _visitController = StreamController<VisitChange>.broadcast();
+
+  /// Stream of visit changes. Emits whenever a visit is created or renewed.
+  Stream<VisitChange> get visitStream => _visitController.stream;
+
+  Visit? get currentVisit => _currentVisit;
 
   /// The configuration object for the Ahoy instance. It contains the base URL
   /// of the server, the paths for the visits and events endpoints, and the
@@ -36,7 +46,8 @@ class Ahoy {
   Configuration configuration;
 
   /// The token manager used to store and retrieve the visitor and visit tokens
-  /// from the device's storage. By default, it uses the [TokenManager] class.
+  /// from the device's storage. By default, it uses the [TokenManager] class
+  /// with the visitDuration from the configuration.
   /// You can provide your own implementation by extending the [AhoyTokenManager]
   AhoyTokenManager storage;
 
@@ -47,8 +58,9 @@ class Ahoy {
     required this.configuration,
     this.headers = const {},
     this.requestInterceptors = const [],
-    AhoyTokenManager tokenStorage = const TokenManager(),
-  }) : storage = tokenStorage;
+    AhoyTokenManager? tokenStorage,
+  }) : storage = tokenStorage ??
+            TokenManager(expiryPeriod: configuration.visitDuration);
 
   /// Track a visit to the server and return a [Visit] object
   /// with the visitor and visit tokens.
@@ -99,7 +111,22 @@ class Ahoy {
     );
 
     if (response.statusCode == 200) {
-      currentVisit = visit;
+      final previousVisit = _currentVisit;
+      _currentVisit = visit;
+      _startVisitExpirationTimer();
+
+      if (previousVisit?.visitToken != visit.visitToken) {
+        _visitController.add(
+          VisitChange(
+            visit: visit,
+            reason: resetVisit
+                ? VisitChangeReason.reset
+                : previousVisit != null
+                    ? VisitChangeReason.expired
+                    : VisitChangeReason.initial,
+          ),
+        );
+      }
       log('Visit tracked: ${currentVisit?.toJson()}', name: 'Ahoy');
       return currentVisit!;
     } else if (response.statusCode == 422) {
@@ -155,7 +182,7 @@ class Ahoy {
         Event(
           name: eventName,
           properties: properties ?? {},
-          platfrom: configuration.environment.platform,
+          platform: configuration.environment.platform,
         ),
       ],
     );
@@ -179,7 +206,7 @@ class Ahoy {
       body: jsonEncode(params),
     );
     if (response.statusCode == 200) {
-      currentVisit = currentVisit?.copyWith(userId: userId);
+      _currentVisit = _currentVisit?.copyWith(userId: userId);
       log('Visit authenticated: $userId', name: 'Ahoy');
       log('Response: ${response.body}', name: 'Ahoy');
     } else {
@@ -221,12 +248,28 @@ class Ahoy {
     }
 
     final handledRequest = await configuration.urlRequestHandler(request);
-
-    return Response.fromStream(handledRequest)
-      ..then(
-        (response) => validateResponse(response),
-      );
+    final response = await Response.fromStream(handledRequest);
+    validateResponse(response);
+    return response;
   }
 
   Visit? get visit => currentVisit;
+
+  void _startVisitExpirationTimer() {
+    _visitExpirationTimer?.cancel();
+    _visitExpirationTimer = Timer(configuration.visitDuration, () async {
+      if (currentVisit != null) {
+        log('Visit expired, creating new visit', name: 'Ahoy');
+        await trackVisit(visitorToken: currentVisit!.visitorToken);
+      }
+    });
+  }
+
+  void dispose() {
+    _visitExpirationTimer?.cancel();
+    _visitController.close();
+    for (final subscription in cancellables) {
+      subscription.cancel();
+    }
+  }
 }

@@ -3,16 +3,16 @@ class Event {
   final String name;
   final Map<String, dynamic> properties;
   final DateTime time;
-  final String platfrom;
+  final String platform;
 
   Event({
     this.id,
     required this.name,
     required this.properties,
     DateTime? time,
-    String? platfrom,
-  })  : time = time ?? DateTime.now(),
-        platfrom = platfrom ?? 'app';
+    String? platform,
+  })  : time = time ?? DateTime.now().toUtc(),
+        platform = platform ?? 'app';
 
   factory Event.fromJson(Map<String, dynamic> json) {
     return Event(
@@ -29,7 +29,7 @@ class Event {
       'name': name,
       'properties': properties,
       'time': time.toIso8601String(),
-      'platform': platfrom,
+      'platform': platform,
     };
   }
 }

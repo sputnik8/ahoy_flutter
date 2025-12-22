@@ -16,21 +16,13 @@ VisitRequestInput _$VisitRequestInputFromJson(Map<String, dynamic> json) =>
       additionalParams: json['additional_params'] as Map<String, dynamic>?,
     );
 
-Map<String, dynamic> _$VisitRequestInputToJson(VisitRequestInput instance) {
-  final val = <String, dynamic>{
-    'visitor_token': instance.visitorToken,
-    'visit_token': instance.visitToken,
-    'platform': instance.platform,
-    'app_version': instance.appVersion,
-    'os_version': instance.osVersion,
-  };
-
-  void writeNotNull(String key, dynamic value) {
-    if (value != null) {
-      val[key] = value;
-    }
-  }
-
-  writeNotNull('additional_params', instance.additionalParams);
-  return val;
-}
+Map<String, dynamic> _$VisitRequestInputToJson(VisitRequestInput instance) =>
+    <String, dynamic>{
+      'visitor_token': instance.visitorToken,
+      'visit_token': instance.visitToken,
+      'platform': instance.platform,
+      'app_version': instance.appVersion,
+      'os_version': instance.osVersion,
+      if (instance.additionalParams case final value?)
+        'additional_params': value,
+    };

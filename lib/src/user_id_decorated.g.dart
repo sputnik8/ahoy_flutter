@@ -18,16 +18,8 @@ UserIdDecorated<T> _$UserIdDecoratedFromJson<T>(
 Map<String, dynamic> _$UserIdDecoratedToJson<T>(
   UserIdDecorated<T> instance,
   Object? Function(T value) toJsonT,
-) {
-  final val = <String, dynamic>{};
-
-  void writeNotNull(String key, dynamic value) {
-    if (value != null) {
-      val[key] = value;
-    }
-  }
-
-  writeNotNull('user_id', instance.userId);
-  val['wrapped'] = toJsonT(instance.wrapped);
-  return val;
-}
+) =>
+    <String, dynamic>{
+      if (instance.userId case final value?) 'user_id': value,
+      'wrapped': toJsonT(instance.wrapped),
+    };

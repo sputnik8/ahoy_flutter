@@ -11,7 +11,7 @@ class Configuration {
   final String visitsPath;
   final String userAgent;
 
-  final Duration? visitDuration;
+  final Duration visitDuration;
 
   Configuration({
     required this.environment,
@@ -23,7 +23,7 @@ class Configuration {
     this.scheme = 'https',
     this.userAgent = 'Ahoy Flutter',
     this.visitsPath = 'visits',
-    this.visitDuration,
+    this.visitDuration = const Duration(hours: 4),
   });
 
   Future<StreamedResponse> urlRequestHandler(Request request) async {
