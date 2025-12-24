@@ -1,36 +1,34 @@
 library ahoy_flutter;
 
-export 'src/ahoy_error.dart';
-export 'src/configuration.dart';
-export 'src/event.dart';
-export 'src/request_interceptor.dart';
-export 'src/token_manager.dart';
-export 'src/visit.dart';
-export 'src/visit_change.dart';
+export 'src/exceptions/ahoy_error.dart';
+export 'src/models/configuration.dart';
+export 'src/models/event.dart';
+export 'src/models/visit.dart';
+export 'src/models/visit_change.dart';
+export 'src/network/ahoy_http_client.dart';
+export 'src/network/request_interceptor.dart';
+export 'src/managers/token_manager.dart';
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
-import 'package:ahoy_flutter/src/ahoy_error.dart';
-import 'package:ahoy_flutter/src/configuration.dart';
-import 'package:ahoy_flutter/src/event.dart';
-import 'package:ahoy_flutter/src/event_request_input.dart';
-import 'package:ahoy_flutter/src/publisher_ahoy.dart';
-import 'package:ahoy_flutter/src/request_interceptor.dart';
-import 'package:ahoy_flutter/src/token_manager.dart';
-
-import 'package:ahoy_flutter/src/visit.dart';
-import 'package:ahoy_flutter/src/visit_change.dart';
-
+import 'package:ahoy_flutter/src/dtos/visit_request_input.dart';
+import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
+import 'package:ahoy_flutter/src/models/configuration.dart';
+import 'package:ahoy_flutter/src/models/event.dart';
+import 'package:ahoy_flutter/src/models/visit.dart';
+import 'package:ahoy_flutter/src/models/visit_change.dart';
+import 'package:ahoy_flutter/src/network/ahoy_http_client.dart';
+import 'package:ahoy_flutter/src/network/request_interceptor.dart';
+import 'package:ahoy_flutter/src/network/response_validator.dart';
+import 'package:ahoy_flutter/src/managers/token_manager.dart';
 import 'package:http/http.dart';
 
 /// The main class of the Ahoy library. It is used to track visits and events
 /// to a server.
 class Ahoy {
   Visit? _currentVisit;
-  final Map<String, String> headers;
-  final List<RequestInterceptor> requestInterceptors;
   Timer? _visitExpirationTimer;
 
   final _visitController = StreamController<VisitChange>.broadcast();
@@ -43,24 +41,34 @@ class Ahoy {
   /// The configuration object for the Ahoy instance. It contains the base URL
   /// of the server, the paths for the visits and events endpoints, and the
   /// environment information.
-  Configuration configuration;
+  final Configuration configuration;
 
   /// The token manager used to store and retrieve the visitor and visit tokens
   /// from the device's storage. By default, it uses the [TokenManager] class
   /// with the visitDuration from the configuration.
   /// You can provide your own implementation by extending the [AhoyTokenManager]
-  AhoyTokenManager storage;
+  final AhoyTokenManager storage;
 
-  /// A set of subscriptions to cancel when the Ahoy instance is disposed.
-  Set<StreamSubscription> cancellables = {};
+  /// The HTTP client used to make requests to the Ahoy server.
+  /// Can be injected for testing purposes.
+  final AhoyHttpClient _httpClient;
 
   Ahoy({
     required this.configuration,
-    this.headers = const {},
-    this.requestInterceptors = const [],
+    Map<String, String> headers = const {},
+    List<RequestInterceptor> requestInterceptors = const [],
     AhoyTokenManager? tokenStorage,
-  }) : storage = tokenStorage ??
-            TokenManager(expiryPeriod: configuration.visitDuration);
+    AhoyHttpClient? httpClient,
+  })  : storage = tokenStorage ??
+            TokenManager(
+              expiryPeriod: configuration.visitDuration,
+            ),
+        _httpClient = httpClient ??
+            AhoyHttpClient(
+              configuration: configuration,
+              headers: headers,
+              interceptors: requestInterceptors,
+            );
 
   /// Track a visit to the server and return a [Visit] object
   /// with the visitor and visit tokens.
@@ -87,60 +95,65 @@ class Ahoy {
     );
     log('Visit tracking started: ${visit.toJson()}', name: 'Ahoy');
 
-    final params = {
-      'visit_token': visit.visitToken,
-      'visitor_token': visit.visitorToken,
-      'user_id': visit.userId,
-      'user_agent': configuration.userAgent,
-      'app_version': configuration.environment.appVersion,
-      'os': configuration.environment.os,
-      'os_version': configuration.environment.osVersion,
-      'platform': configuration.environment.platform,
-      'device_type': configuration.environment.deviceType,
-      'landing_page': landingPage,
-      'utm_source': utmSource,
-      'utm_medium': utmMedium,
-      'utm_term': utmTerm,
-      'utm_campaign': utmCampaign,
-      'started_at': '${DateTime.now().toUtc().toString().split('.')[0]} +0000',
-    };
+    final params = VisitRequestInput(
+      visitToken: visit.visitToken,
+      visitorToken: visit.visitorToken,
+      userId: visit.userId,
+      userAgent: configuration.userAgent,
+      appVersion: configuration.environment.appVersion,
+      os: configuration.environment.os,
+      osVersion: configuration.environment.osVersion,
+      platform: configuration.environment.platform,
+      deviceType: configuration.environment.deviceType,
+      landingPage: landingPage,
+      utmSource: utmSource,
+      utmMedium: utmMedium,
+      utmTerm: utmTerm,
+      utmCampaign: utmCampaign,
+      startedAt: '${DateTime.now().toUtc().toString().split('.')[0]} +0000',
+    ).toJson();
 
-    final response = await _dataTaskPublisher(
-      path: configuration.visitsPath,
-      body: json.encode(params),
+    Response response;
+    try {
+      response = validateResponse(
+        await _httpClient.post(
+          path: configuration.visitsPath,
+          body: json.encode(params),
+        ),
+      );
+    } on UnacceptableResponseError catch (e) {
+      if (e.code == 422) {
+        log('Error: Visit not tracked', name: 'Ahoy');
+        throw MismatchingVisitError();
+      }
+      log('Error: Visit not tracked', name: 'Ahoy');
+      log('Response: ${e.data}', name: 'Ahoy');
+      rethrow;
+    }
+
+    final responseData = json.decode(response.body) as Map<String, dynamic>;
+    final serverVisit = Visit.fromJson(responseData).copyWith(
+      additionalParams: additionalParams,
     );
 
-    if (response.statusCode == 200) {
-      final previousVisit = _currentVisit;
-      _currentVisit = visit;
-      _startVisitExpirationTimer();
+    final previousVisit = _currentVisit;
+    _currentVisit = serverVisit;
+    _startVisitExpirationTimer();
 
-      if (previousVisit?.visitToken != visit.visitToken) {
-        _visitController.add(
-          VisitChange(
-            visit: visit,
-            reason: resetVisit
-                ? VisitChangeReason.reset
-                : previousVisit != null
-                    ? VisitChangeReason.expired
-                    : VisitChangeReason.initial,
-          ),
-        );
-      }
-      log('Visit tracked: ${currentVisit?.toJson()}', name: 'Ahoy');
-      return currentVisit!;
-    } else if (response.statusCode == 422) {
-      log('Error: Visit not tracked', name: 'Ahoy');
-
-      throw MismatchingVisitError();
-    } else {
-      log('Error: Visit not tracked', name: 'Ahoy');
-      log('Response: ${response.body}', name: 'Ahoy');
-      throw UnacceptableResponseError(
-        code: response.statusCode,
-        data: response.body,
+    if (previousVisit?.visitToken != serverVisit.visitToken) {
+      _visitController.add(
+        VisitChange(
+          visit: serverVisit,
+          reason: resetVisit
+              ? VisitChangeReason.reset
+              : previousVisit != null
+                  ? VisitChangeReason.expired
+                  : VisitChangeReason.initial,
+        ),
       );
     }
+    log('Visit tracked: ${currentVisit?.toJson()}', name: 'Ahoy');
+    return currentVisit!;
   }
 
   /// Track a list of events to the server. The events will be associated
@@ -158,26 +171,24 @@ class Ahoy {
       'events': events.map((e) => e.toJson()).toList(),
     };
 
-    final response = await _dataTaskPublisher<EventRequestInput>(
-      path: configuration.eventsPath,
-      body: jsonEncode(bulkEvent),
+    validateResponse(
+      await _httpClient.post(
+        path: configuration.eventsPath,
+        body: jsonEncode(bulkEvent),
+      ),
     );
-    if (response.statusCode == 200) {
-      log('Bulk Event tracked: $bulkEvent', name: 'Ahoy');
-    }
-    if (response.statusCode != 200) {
-      throw UnacceptableResponseError(
-        code: response.statusCode,
-        data: response.body,
-      );
-    }
+
+    log('Bulk Event tracked: $bulkEvent', name: 'Ahoy');
   }
 
   /// Track a single event to the server. The event will be associated
   /// with the current visit. If no visit is tracked, a [NoVisitError] will be thrown.
   /// Optionally, you can pass additional parameters to be sent to the server.
-  void trackSingle(String eventName, {Map<String, dynamic>? properties}) {
-    track(
+  Future<void> trackSingle(
+    String eventName, {
+    Map<String, dynamic>? properties,
+  }) async {
+    await track(
       [
         Event(
           name: eventName,
@@ -201,66 +212,33 @@ class Ahoy {
       'user_id': userId,
     };
 
-    final response = await _dataTaskPublisher(
-      path: configuration.authenticationPath,
-      body: jsonEncode(params),
-    );
-    if (response.statusCode == 200) {
-      _currentVisit = _currentVisit?.copyWith(userId: userId);
-      log('Visit authenticated: $userId', name: 'Ahoy');
-      log('Response: ${response.body}', name: 'Ahoy');
-    } else {
-      log('Error: Visit not authenticated', name: 'Ahoy');
-      log('Response: ${response.body}', name: 'Ahoy');
-      throw UnacceptableResponseError(
-        code: response.statusCode,
-        data: response.body,
-      );
-    }
-  }
-
-  Future<Response> _dataTaskPublisher<Body>({
-    required String path,
-    String? body,
-    Map<String, String>? headers,
-    Map<String, dynamic>? queryParameters,
-  }) async {
-    final uri = Uri(
-      scheme: configuration.scheme,
-      host: configuration.baseUrl,
-      port: configuration.port,
-      path: '${configuration.ahoyPath}/$path',
-      queryParameters: queryParameters,
+    final response = validateResponse(
+      await _httpClient.post(
+        path: configuration.authenticationPath,
+        body: jsonEncode(params),
+      ),
     );
 
-    final request = Request('POST', uri);
-    if (body != null) {
-      request.body = body;
-    }
-    request.headers['User-Agent'] = configuration.userAgent;
-    request.headers['Content-Type'] = 'application/json';
-
-    if (headers != null) {
-      request.headers.addAll(headers);
-    }
-    for (final interceptor in requestInterceptors) {
-      interceptor.interceptRequest(request);
-    }
-
-    final handledRequest = await configuration.urlRequestHandler(request);
-    final response = await Response.fromStream(handledRequest);
-    validateResponse(response);
-    return response;
+    _currentVisit = _currentVisit?.copyWith(userId: userId);
+    log('Visit authenticated: $userId', name: 'Ahoy');
+    log('Response: ${response.body}', name: 'Ahoy');
   }
-
-  Visit? get visit => currentVisit;
 
   void _startVisitExpirationTimer() {
     _visitExpirationTimer?.cancel();
     _visitExpirationTimer = Timer(configuration.visitDuration, () async {
       if (currentVisit != null) {
-        log('Visit expired, creating new visit', name: 'Ahoy');
-        await trackVisit(visitorToken: currentVisit!.visitorToken);
+        try {
+          log('Visit expired, creating new visit', name: 'Ahoy');
+          await trackVisit(visitorToken: currentVisit!.visitorToken);
+        } catch (e, stackTrace) {
+          log(
+            'Error renewing expired visit: $e',
+            name: 'Ahoy',
+            error: e,
+            stackTrace: stackTrace,
+          );
+        }
       }
     });
   }
@@ -268,8 +246,5 @@ class Ahoy {
   void dispose() {
     _visitExpirationTimer?.cancel();
     _visitController.close();
-    for (final subscription in cancellables) {
-      subscription.cancel();
-    }
   }
 }

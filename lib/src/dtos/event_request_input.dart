@@ -1,6 +1,5 @@
-import 'package:ahoy_flutter/ahoy_flutter.dart';
-import 'package:ahoy_flutter/src/event.dart';
-import 'package:ahoy_flutter/src/user_id_decorated.dart';
+import 'package:ahoy_flutter/src/models/event.dart';
+import 'package:ahoy_flutter/src/dtos/user_id_decorated.dart';
 import 'package:json_annotation/json_annotation.dart';
 
 part 'event_request_input.g.dart';

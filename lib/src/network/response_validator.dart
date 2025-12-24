@@ -1,4 +1,4 @@
-import 'package:ahoy_flutter/ahoy_flutter.dart';
+import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
 import 'package:http/http.dart';
 
 Response validateResponse(
