@@ -1,4 +1,4 @@
-import 'package:ahoy_flutter/src/visit.dart';
+import 'package:ahoy_flutter/src/models/visit.dart';
 
 enum VisitChangeReason {
   /// Initial visit creation

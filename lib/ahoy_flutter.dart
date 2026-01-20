@@ -1,73 +1,81 @@
 library ahoy_flutter;
 
-export 'src/ahoy_error.dart';
-export 'src/configuration.dart';
-export 'src/event.dart';
-export 'src/request_interceptor.dart';
-export 'src/token_manager.dart';
-export 'src/visit.dart';
-export 'src/visit_change.dart';
+export 'src/exceptions/ahoy_error.dart';
+export 'src/models/batch_config.dart';
+export 'src/models/configuration.dart';
+export 'src/models/event.dart';
+export 'src/managers/event_queue.dart';
+export 'src/managers/event_storage.dart';
+export 'src/models/queued_event.dart';
+export 'src/network/request_interceptor.dart';
+export 'src/managers/token_manager.dart';
+export 'src/models/visit.dart';
+export 'src/models/visit_change.dart';
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
-import 'package:ahoy_flutter/src/ahoy_error.dart';
-import 'package:ahoy_flutter/src/configuration.dart';
-import 'package:ahoy_flutter/src/event.dart';
-import 'package:ahoy_flutter/src/event_request_input.dart';
-import 'package:ahoy_flutter/src/publisher_ahoy.dart';
-import 'package:ahoy_flutter/src/request_interceptor.dart';
-import 'package:ahoy_flutter/src/token_manager.dart';
-
-import 'package:ahoy_flutter/src/visit.dart';
-import 'package:ahoy_flutter/src/visit_change.dart';
+import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
+import 'package:ahoy_flutter/src/models/configuration.dart';
+import 'package:ahoy_flutter/src/models/event.dart';
+import 'package:ahoy_flutter/src/managers/event_queue.dart';
+import 'package:ahoy_flutter/src/managers/event_storage.dart';
+import 'package:ahoy_flutter/src/utils/publisher_ahoy.dart';
+import 'package:ahoy_flutter/src/models/queued_event.dart';
+import 'package:ahoy_flutter/src/network/request_interceptor.dart';
+import 'package:ahoy_flutter/src/managers/token_manager.dart';
+import 'package:ahoy_flutter/src/models/visit.dart';
+import 'package:ahoy_flutter/src/models/visit_change.dart';
 
 import 'package:http/http.dart';
 
-/// The main class of the Ahoy library. It is used to track visits and events
-/// to a server.
 class Ahoy {
   Visit? _currentVisit;
   final Map<String, String> headers;
   final List<RequestInterceptor> requestInterceptors;
   Timer? _visitExpirationTimer;
+  Timer? _flushTimer;
+  late final EventQueue _eventQueue;
+  bool _isInitialized = false;
 
   final _visitController = StreamController<VisitChange>.broadcast();
 
-  /// Stream of visit changes. Emits whenever a visit is created or renewed.
   Stream<VisitChange> get visitStream => _visitController.stream;
 
   Visit? get currentVisit => _currentVisit;
 
-  /// The configuration object for the Ahoy instance. It contains the base URL
-  /// of the server, the paths for the visits and events endpoints, and the
-  /// environment information.
   Configuration configuration;
 
-  /// The token manager used to store and retrieve the visitor and visit tokens
-  /// from the device's storage. By default, it uses the [TokenManager] class
-  /// with the visitDuration from the configuration.
-  /// You can provide your own implementation by extending the [AhoyTokenManager]
   AhoyTokenManager storage;
 
-  /// A set of subscriptions to cancel when the Ahoy instance is disposed.
   Set<StreamSubscription> cancellables = {};
+
+  int get pendingEventCount => _eventQueue.length;
 
   Ahoy({
     required this.configuration,
     this.headers = const {},
     this.requestInterceptors = const [],
     AhoyTokenManager? tokenStorage,
+    EventStorage? eventStorage,
   }) : storage = tokenStorage ??
-            TokenManager(expiryPeriod: configuration.visitDuration);
+            TokenManager(expiryPeriod: configuration.visitDuration) {
+    _eventQueue = EventQueue(storage: eventStorage);
+  }
 
-  /// Track a visit to the server and return a [Visit] object
-  /// with the visitor and visit tokens.
-  /// Optionally, you can pass additional parameters to be sent to the server.
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    await _eventQueue.loadFromStorage();
+    _startFlushTimer();
+    _isInitialized = true;
+    log(
+      'Ahoy initialized with ${_eventQueue.length} pending events',
+      name: 'Ahoy',
+    );
+  }
+
   Future<Visit> trackVisit({
-    /// [Optional] Custom visitor token to use for the visit.
-    /// If not provided, a new one will be generated.
     String? visitorToken,
     String? utmSource,
     String? utmMedium,
@@ -131,7 +139,6 @@ class Ahoy {
       return currentVisit!;
     } else if (response.statusCode == 422) {
       log('Error: Visit not tracked', name: 'Ahoy');
-
       throw MismatchingVisitError();
     } else {
       log('Error: Visit not tracked', name: 'Ahoy');
@@ -143,56 +150,119 @@ class Ahoy {
     }
   }
 
-  /// Track a list of events to the server. The events will be associated
-  /// with the current visit. If no visit is tracked, a [NoVisitError] will be thrown.
-  /// Optionally, you can pass additional parameters to be sent to the server.
   Future<void> track(List<Event> events) async {
     if (currentVisit == null) {
       log('Error: No Visit Found', name: 'Ahoy');
-
       throw NoVisitError();
     }
-    final bulkEvent = {
-      'visit_token': currentVisit!.visitToken,
-      'visitor_token': currentVisit!.visitorToken,
-      'events': events.map((e) => e.toJson()).toList(),
-    };
 
-    final response = await _dataTaskPublisher<EventRequestInput>(
-      path: configuration.eventsPath,
-      body: jsonEncode(bulkEvent),
-    );
-    if (response.statusCode == 200) {
-      log('Bulk Event tracked: $bulkEvent', name: 'Ahoy');
+    if (!configuration.batchConfig.enabled) {
+      return _sendEventsImmediately(events);
     }
-    if (response.statusCode != 200) {
-      throw UnacceptableResponseError(
-        code: response.statusCode,
-        data: response.body,
+
+    for (final event in events) {
+      await _eventQueue.enqueue(
+        event,
+        visitToken: currentVisit!.visitToken,
+        visitorToken: currentVisit!.visitorToken,
       );
     }
-  }
 
-  /// Track a single event to the server. The event will be associated
-  /// with the current visit. If no visit is tracked, a [NoVisitError] will be thrown.
-  /// Optionally, you can pass additional parameters to be sent to the server.
-  void trackSingle(String eventName, {Map<String, dynamic>? properties}) {
-    track(
-      [
-        Event(
-          name: eventName,
-          properties: properties ?? {},
-          platform: configuration.environment.platform,
-        ),
-      ],
+    log(
+      'Queued ${events.length} events. Total pending: ${_eventQueue.length}',
+      name: 'Ahoy',
     );
+
+    if (_eventQueue.length >= configuration.batchConfig.maxBatchSize) {
+      await flush();
+    }
   }
 
-  /// Authenticate the current visit with a user ID.
+  void trackSingle(String eventName, {Map<String, dynamic>? properties}) {
+    track([
+      Event(
+        name: eventName,
+        properties: properties ?? {},
+        platform: configuration.environment.platform,
+      ),
+    ]);
+  }
+
+  Future<void> flush() async {
+    if (_eventQueue.isEmpty) {
+      log('No events to flush', name: 'Ahoy');
+      return;
+    }
+
+    final events = _eventQueue.pendingEvents.toList();
+    log('Flushing ${events.length} events', name: 'Ahoy');
+
+    final groupedByVisit = <String, List<QueuedEvent>>{};
+    for (final event in events) {
+      final key = '${event.visitorToken}:${event.visitToken}';
+      groupedByVisit.putIfAbsent(key, () => []).add(event);
+    }
+
+    final successfulIds = <String>[];
+    final failedEvents = <QueuedEvent>[];
+
+    for (final entry in groupedByVisit.entries) {
+      final batchEvents = entry.value;
+      final firstEvent = batchEvents.first;
+
+      try {
+        final bulkEvent = {
+          'visit_token': firstEvent.visitToken,
+          'visitor_token': firstEvent.visitorToken,
+          'events': batchEvents.map((e) => e.event.toJson()).toList(),
+        };
+
+        final response = await _dataTaskPublisher(
+          path: configuration.eventsPath,
+          body: jsonEncode(bulkEvent),
+        );
+
+        if (response.statusCode == 200) {
+          successfulIds.addAll(batchEvents.map((e) => e.id));
+          log(
+            'Batch sent successfully: ${batchEvents.length} events',
+            name: 'Ahoy',
+          );
+        } else {
+          failedEvents.addAll(batchEvents);
+          log('Batch failed with status ${response.statusCode}', name: 'Ahoy');
+        }
+      } catch (e) {
+        failedEvents.addAll(batchEvents);
+        log('Batch failed with error: $e', name: 'Ahoy');
+      }
+    }
+
+    if (successfulIds.isNotEmpty) {
+      await _eventQueue.removeEvents(successfulIds);
+    }
+
+    for (final event in failedEvents) {
+      final newRetryCount = event.retryCount + 1;
+      if (newRetryCount >= configuration.batchConfig.maxRetries) {
+        await _eventQueue.removeEvents([event.id]);
+        log('Event ${event.id} exceeded max retries, discarding', name: 'Ahoy');
+      } else {
+        await _eventQueue.updateRetryCount(event.id, newRetryCount);
+      }
+    }
+  }
+
+  void onAppLifecycleStateChange(String state) {
+    if ((state == 'paused' || state == 'detached') &&
+        configuration.batchConfig.flushOnBackground) {
+      flush();
+    }
+  }
+
   Future<void> authenticate(String userId) async {
     if (currentVisit == null) {
       log('Error: No Visit Found', name: 'Ahoy');
-
       throw NoVisitError();
     }
 
@@ -208,10 +278,31 @@ class Ahoy {
     if (response.statusCode == 200) {
       _currentVisit = _currentVisit?.copyWith(userId: userId);
       log('Visit authenticated: $userId', name: 'Ahoy');
-      log('Response: ${response.body}', name: 'Ahoy');
     } else {
       log('Error: Visit not authenticated', name: 'Ahoy');
       log('Response: ${response.body}', name: 'Ahoy');
+      throw UnacceptableResponseError(
+        code: response.statusCode,
+        data: response.body,
+      );
+    }
+  }
+
+  Future<void> _sendEventsImmediately(List<Event> events) async {
+    final bulkEvent = {
+      'visit_token': currentVisit!.visitToken,
+      'visitor_token': currentVisit!.visitorToken,
+      'events': events.map((e) => e.toJson()).toList(),
+    };
+
+    final response = await _dataTaskPublisher(
+      path: configuration.eventsPath,
+      body: jsonEncode(bulkEvent),
+    );
+    if (response.statusCode == 200) {
+      log('Bulk Event tracked: $bulkEvent', name: 'Ahoy');
+    }
+    if (response.statusCode != 200) {
       throw UnacceptableResponseError(
         code: response.statusCode,
         data: response.body,
@@ -265,8 +356,17 @@ class Ahoy {
     });
   }
 
+  void _startFlushTimer() {
+    if (!configuration.batchConfig.enabled) return;
+    _flushTimer?.cancel();
+    _flushTimer = Timer.periodic(configuration.batchConfig.flushInterval, (_) {
+      flush();
+    });
+  }
+
   void dispose() {
     _visitExpirationTimer?.cancel();
+    _flushTimer?.cancel();
     _visitController.close();
     for (final subscription in cancellables) {
       subscription.cancel();

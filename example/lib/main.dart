@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:ahoy_flutter/ahoy_flutter.dart';
-
 import 'package:flutter/material.dart';
 
 final ahoy = Ahoy(
@@ -16,28 +15,37 @@ final ahoy = Ahoy(
     ahoyPath: 'api/v1',
     eventsPath: 'events/create',
     visitsPath: 'visits/upsert',
-    baseUrl: 'http://localhost:3001',
+    baseUrl: 'localhost',
+    port: 3001,
+    scheme: 'http',
+    batchConfig: const BatchConfig(
+      maxBatchSize: 5,
+      flushInterval: Duration(seconds: 10),
+      maxRetries: 3,
+    ),
   ),
   tokenStorage: const TokenManager(),
 );
-void main() {
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ahoy.initialize();
+  await ahoy.trackVisit();
   runApp(const MyApp());
-  ahoy.trackVisit();
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Ahoy Batch Demo',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const MyHomePage(title: 'Ahoy Batch Event Demo'),
     );
   }
 }
@@ -51,15 +59,35 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  final int _counter = 0;
+class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
+  int _counter = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    ahoy.onAppLifecycleStateChange(state.name);
+  }
 
   void _incrementCounter() {
     setState(() {
-      ahoy.trackSingle('Listing Activity Load', properties: {
-        'counter': _counter + 1,
-      });
+      _counter++;
+      ahoy.trackSingle('button_click', properties: {'counter': _counter});
     });
+  }
+
+  void _flushEvents() {
+    ahoy.flush();
   }
 
   @override
@@ -73,21 +101,34 @@ class _MyHomePageState extends State<MyHomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
+            const Text('Tap the button to queue events:'),
             Text(
               '$_counter',
               style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Pending events: ${ahoy.pendingEventCount}',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _flushEvents,
+              child: const Text('Flush Events Now'),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Auto-flush at 5 events or every 10 seconds',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _incrementCounter,
-        tooltip: 'Increment',
+        tooltip: 'Track Event',
         child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      ),
     );
   }
 }
