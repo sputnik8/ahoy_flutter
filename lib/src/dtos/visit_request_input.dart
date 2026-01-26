@@ -4,19 +4,39 @@ part 'visit_request_input.g.dart';
 
 @JsonSerializable(fieldRename: FieldRename.snake, includeIfNull: false)
 class VisitRequestInput {
-  String visitorToken;
-  String visitToken;
-  String platform;
-  String appVersion;
-  String osVersion;
-  Map<String, dynamic>? additionalParams;
+  final String visitToken;
+  final String visitorToken;
+  final String? userId;
+  final String? userAgent;
+  final String? appVersion;
+  final String? os;
+  final String? osVersion;
+  final String? platform;
+  final String? deviceType;
+  final String? landingPage;
+  final String? utmSource;
+  final String? utmMedium;
+  final String? utmTerm;
+  final String? utmCampaign;
+  final String? startedAt;
+  final Map<String, dynamic>? additionalParams;
 
   VisitRequestInput({
-    required this.visitorToken,
     required this.visitToken,
-    required this.platform,
-    required this.appVersion,
-    required this.osVersion,
+    required this.visitorToken,
+    this.userId,
+    this.userAgent,
+    this.appVersion,
+    this.os,
+    this.osVersion,
+    this.platform,
+    this.deviceType,
+    this.landingPage,
+    this.utmSource,
+    this.utmMedium,
+    this.utmTerm,
+    this.utmCampaign,
+    this.startedAt,
     this.additionalParams,
   });
 
