@@ -6,12 +6,14 @@ class AhoyHttpClient {
   final Configuration configuration;
   final Map<String, String> headers;
   final List<RequestInterceptor> interceptors;
+  final Client _client;
 
   AhoyHttpClient({
     required this.configuration,
     this.headers = const {},
     this.interceptors = const [],
-  });
+    Client? client,
+  }) : _client = client ?? Client();
 
   Future<Response> post({
     required String path,
@@ -45,7 +47,11 @@ class AhoyHttpClient {
       interceptor.interceptRequest(request);
     }
 
-    final streamedResponse = await configuration.urlRequestHandler(request);
+    final streamedResponse = await _client.send(request);
     return Response.fromStream(streamedResponse);
+  }
+
+  void close() {
+    _client.close();
   }
 }

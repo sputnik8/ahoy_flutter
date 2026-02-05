@@ -1,5 +1,4 @@
 import 'package:ahoy_flutter/src/models/batch_config.dart';
-import 'package:http/http.dart';
 
 class Configuration {
   final ApplicationEnvironment environment;
@@ -27,10 +26,6 @@ class Configuration {
     this.visitDuration = const Duration(hours: 4),
     this.batchConfig = const BatchConfig(),
   });
-
-  Future<StreamedResponse> urlRequestHandler(Request request) async {
-    return await Client().send(request);
-  }
 
   dynamic operator [](String key) {
     switch (key) {

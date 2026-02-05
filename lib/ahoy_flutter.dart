@@ -17,6 +17,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
+import 'package:collection/collection.dart';
+
 import 'package:ahoy_flutter/src/dtos/visit_request_input.dart';
 import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
 import 'package:ahoy_flutter/src/models/configuration.dart';
@@ -211,44 +213,19 @@ class Ahoy {
     final events = _eventQueue.pendingEvents.toList();
     log('Flushing ${events.length} events', name: 'Ahoy');
 
-    final groupedByVisit = <String, List<QueuedEvent>>{};
-    for (final event in events) {
-      final key = '${event.visitorToken}:${event.visitToken}';
-      groupedByVisit.putIfAbsent(key, () => []).add(event);
-    }
+    final groupedByVisit = events.groupListsBy(
+      (event) => '${event.visitorToken}:${event.visitToken}',
+    );
 
     final successfulIds = <String>[];
     final failedEvents = <QueuedEvent>[];
 
-    for (final entry in groupedByVisit.entries) {
-      final batchEvents = entry.value;
-      final firstEvent = batchEvents.first;
-
-      try {
-        final bulkEvent = {
-          'visit_token': firstEvent.visitToken,
-          'visitor_token': firstEvent.visitorToken,
-          'events': batchEvents.map((e) => e.event.toJson()).toList(),
-        };
-
-        validateResponse(
-          await _httpClient.post(
-            path: configuration.eventsPath,
-            body: jsonEncode(bulkEvent),
-          ),
-        );
-
-        successfulIds.addAll(batchEvents.map((e) => e.id));
-        log(
-          'Batch sent successfully: ${batchEvents.length} events',
-          name: 'Ahoy',
-        );
-      } on UnacceptableResponseError catch (e) {
+    for (final batchEvents in groupedByVisit.values) {
+      final sentIds = await _sendBatchForVisit(batchEvents);
+      if (sentIds != null) {
+        successfulIds.addAll(sentIds);
+      } else {
         failedEvents.addAll(batchEvents);
-        log('Batch failed with status ${e.code}', name: 'Ahoy');
-      } catch (e) {
-        failedEvents.addAll(batchEvents);
-        log('Batch failed with error: $e', name: 'Ahoy');
       }
     }
 
@@ -256,6 +233,43 @@ class Ahoy {
       await _eventQueue.removeEvents(successfulIds);
     }
 
+    await _handleFailedEvents(failedEvents);
+  }
+
+  Future<List<String>?> _sendBatchForVisit(
+    List<QueuedEvent> batchEvents,
+  ) async {
+    final firstEvent = batchEvents.first;
+
+    try {
+      final bulkEvent = {
+        'visit_token': firstEvent.visitToken,
+        'visitor_token': firstEvent.visitorToken,
+        'events': batchEvents.map((e) => e.event.toJson()).toList(),
+      };
+
+      validateResponse(
+        await _httpClient.post(
+          path: configuration.eventsPath,
+          body: jsonEncode(bulkEvent),
+        ),
+      );
+
+      log(
+        'Batch sent successfully: ${batchEvents.length} events',
+        name: 'Ahoy',
+      );
+      return batchEvents.map((e) => e.id).toList();
+    } on UnacceptableResponseError catch (e) {
+      log('Batch failed with status ${e.code}', name: 'Ahoy');
+      return null;
+    } catch (e) {
+      log('Batch failed with error: $e', name: 'Ahoy');
+      return null;
+    }
+  }
+
+  Future<void> _handleFailedEvents(List<QueuedEvent> failedEvents) async {
     for (final event in failedEvents) {
       final newRetryCount = event.retryCount + 1;
       if (newRetryCount >= configuration.batchConfig.maxRetries) {
@@ -264,13 +278,6 @@ class Ahoy {
       } else {
         await _eventQueue.updateRetryCount(event.id, newRetryCount);
       }
-    }
-  }
-
-  void onAppLifecycleStateChange(String state) {
-    if ((state == 'paused' || state == 'detached') &&
-        configuration.batchConfig.flushOnBackground) {
-      flush();
     }
   }
 
