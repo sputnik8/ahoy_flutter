@@ -8,6 +8,7 @@ export 'src/managers/event_queue.dart';
 export 'src/managers/event_storage.dart';
 export 'src/models/queued_event.dart';
 export 'src/network/ahoy_http_client.dart';
+export 'src/models/proxy_configuration.dart';
 export 'src/network/request_interceptor.dart';
 export 'src/managers/token_manager.dart';
 export 'src/models/visit.dart';
@@ -23,6 +24,7 @@ import 'package:ahoy_flutter/src/dtos/visit_request_input.dart';
 import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
 import 'package:ahoy_flutter/src/models/configuration.dart';
 import 'package:ahoy_flutter/src/models/event.dart';
+import 'package:ahoy_flutter/src/models/proxy_configuration.dart';
 import 'package:ahoy_flutter/src/managers/event_queue.dart';
 import 'package:ahoy_flutter/src/managers/event_storage.dart';
 import 'package:ahoy_flutter/src/models/queued_event.dart';
@@ -61,6 +63,7 @@ class Ahoy {
     AhoyTokenManager? tokenStorage,
     AhoyHttpClient? httpClient,
     EventStorage? eventStorage,
+    ProxyConfiguration? proxyConfiguration,
   })  : storage = tokenStorage ??
             TokenManager(expiryPeriod: configuration.visitDuration),
         _httpClient = httpClient ??
@@ -68,6 +71,7 @@ class Ahoy {
               configuration: configuration,
               headers: headers,
               interceptors: requestInterceptors,
+              proxyConfiguration: proxyConfiguration,
             ) {
     _eventQueue = EventQueue(storage: eventStorage);
   }
