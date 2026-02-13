@@ -39,6 +39,7 @@ class Ahoy {
   Visit? _currentVisit;
   Timer? _visitExpirationTimer;
   Timer? _flushTimer;
+  bool _isFlushing = false;
   late final EventQueue _eventQueue;
   bool _isInitialized = false;
 
@@ -209,35 +210,41 @@ class Ahoy {
   }
 
   Future<void> flush() async {
+    if (_isFlushing) return;
     if (_eventQueue.isEmpty) {
       log('No events to flush', name: 'Ahoy');
       return;
     }
 
-    final events = _eventQueue.pendingEvents.toList();
-    log('Flushing ${events.length} events', name: 'Ahoy');
+    _isFlushing = true;
+    try {
+      final events = _eventQueue.pendingEvents.toList();
+      log('Flushing ${events.length} events', name: 'Ahoy');
 
-    final groupedByVisit = events.groupListsBy(
-      (event) => '${event.visitorToken}:${event.visitToken}',
-    );
+      final groupedByVisit = events.groupListsBy(
+        (event) => '${event.visitorToken}:${event.visitToken}',
+      );
 
-    final successfulIds = <String>[];
-    final failedEvents = <QueuedEvent>[];
+      final successfulIds = <String>[];
+      final failedEvents = <QueuedEvent>[];
 
-    for (final batchEvents in groupedByVisit.values) {
-      final sentIds = await _sendBatchForVisit(batchEvents);
-      if (sentIds != null) {
-        successfulIds.addAll(sentIds);
-      } else {
-        failedEvents.addAll(batchEvents);
+      for (final batchEvents in groupedByVisit.values) {
+        final sentIds = await _sendBatchForVisit(batchEvents);
+        if (sentIds != null) {
+          successfulIds.addAll(sentIds);
+        } else {
+          failedEvents.addAll(batchEvents);
+        }
       }
-    }
 
-    if (successfulIds.isNotEmpty) {
-      await _eventQueue.removeEvents(successfulIds);
-    }
+      if (successfulIds.isNotEmpty) {
+        await _eventQueue.removeEvents(successfulIds);
+      }
 
-    await _handleFailedEvents(failedEvents);
+      await _handleFailedEvents(failedEvents);
+    } finally {
+      _isFlushing = false;
+    }
   }
 
   Future<List<String>?> _sendBatchForVisit(
@@ -349,8 +356,18 @@ class Ahoy {
   void _startFlushTimer() {
     if (!configuration.batchConfig.enabled) return;
     _flushTimer?.cancel();
-    _flushTimer = Timer.periodic(configuration.batchConfig.flushInterval, (_) {
-      flush();
+    _flushTimer =
+        Timer.periodic(configuration.batchConfig.flushInterval, (_) async {
+      try {
+        await flush();
+      } catch (e, stackTrace) {
+        log(
+          'Error during scheduled flush: $e',
+          name: 'Ahoy',
+          error: e,
+          stackTrace: stackTrace,
+        );
+      }
     });
   }
 
