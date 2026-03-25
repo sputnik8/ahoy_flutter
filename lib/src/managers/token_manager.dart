@@ -1,4 +1,4 @@
-import 'package:ahoy_flutter/src/expiring_persisted.dart';
+import 'package:ahoy_flutter/src/utils/expiring_persisted.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 

@@ -1,62 +1,72 @@
+import 'dart:convert';
 import 'package:ahoy_flutter/ahoy_flutter.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
-
 import 'package:http/http.dart' as http;
 
-class MockTokenManager extends Mock implements TokenManager {}
+import 'ahoy_flutter_test.mocks.dart';
 
-class MockHttpClient extends Mock implements http.Client {}
-
+@GenerateNiceMocks([
+  MockSpec<TokenManager>(),
+  MockSpec<http.Client>(),
+  MockSpec<EventStorage>(),
+])
 void main() {
   late Ahoy ahoy;
   late MockTokenManager mockTokenManager;
-  late MockHttpClient mockHttpClient;
+  late MockClient mockHttpClient;
+  late MockEventStorage mockEventStorage;
 
   setUp(() {
     mockTokenManager = MockTokenManager();
-    mockHttpClient = MockHttpClient();
-    ahoy = Ahoy(
-      configuration: Configuration(
-        baseUrl: 'https://example.com',
-        ahoyPath: 'ahoy',
-        visitsPath: 'visits',
-        eventsPath: 'events',
-        environment: ApplicationEnvironment(
-          deviceType: 'Mobile',
-          platform: 'flutter',
-          appVersion: '1.0.0',
-          os: 'iOS',
-          osVersion: '1.0.0',
-        ),
+    mockHttpClient = MockClient();
+    mockEventStorage = MockEventStorage();
+
+    final config = Configuration(
+      baseUrl: 'example.com',
+      ahoyPath: 'ahoy',
+      visitsPath: 'visits',
+      eventsPath: 'events',
+      environment: ApplicationEnvironment(
+        deviceType: 'Mobile',
+        platform: 'flutter',
+        appVersion: '1.0.0',
+        os: 'iOS',
+        osVersion: '1.0.0',
       ),
+    );
+
+    ahoy = Ahoy(
+      configuration: config,
       tokenStorage: mockTokenManager,
+      httpClient: AhoyHttpClient(
+        configuration: config,
+        client: mockHttpClient,
+      ),
+      eventStorage: mockEventStorage,
     );
   });
 
   group('Ahoy', () {
     test('trackVisit should return a Visit object', () async {
-      // Mock the token manager to return a fixed token
       when(mockTokenManager.visitorToken)
           .thenAnswer((_) async => 'visitorToken');
       when(mockTokenManager.visitToken).thenAnswer((_) async => 'visitToken');
 
-      // Mock the HTTP client to return a successful response
       when(
-        mockHttpClient.post(
-          any as dynamic,
-          headers: anyNamed('headers'),
-          body: anyNamed('body'),
-        ),
+        mockHttpClient.send(any),
       ).thenAnswer(
-        (_) async => http.Response(
-          '{"visitor_token": "visitorToken", "visit_token": "visitToken"}',
+        (_) async => http.StreamedResponse(
+          Stream.value(
+            const JsonEncoder().convert({
+              "visitor_token": "visitorToken",
+              "visit_token": "visitToken",
+            }).codeUnits,
+          ),
           200,
         ),
       );
-
-      // Replace the default HTTP client with the mock
 
       final visit = await ahoy.trackVisit();
       expect(visit.visitorToken, 'visitorToken');
@@ -68,43 +78,77 @@ void main() {
     });
 
     test('trackSingle should track a single event', () async {
-      // Mock the token manager to return a fixed token
+      final noBatchConfig = Configuration(
+        baseUrl: 'example.com',
+        ahoyPath: 'ahoy',
+        visitsPath: 'visits',
+        eventsPath: 'events',
+        batchConfig: const BatchConfig(enabled: false),
+        environment: ApplicationEnvironment(
+          deviceType: 'Mobile',
+          platform: 'flutter',
+          appVersion: '1.0.0',
+          os: 'iOS',
+          osVersion: '1.0.0',
+        ),
+      );
+
+      ahoy = Ahoy(
+        configuration: noBatchConfig,
+        tokenStorage: mockTokenManager,
+        httpClient: AhoyHttpClient(
+          configuration: noBatchConfig,
+          client: mockHttpClient,
+        ),
+        eventStorage: mockEventStorage,
+      );
+
       when(mockTokenManager.visitorToken)
           .thenAnswer((_) async => 'visitorToken');
       when(mockTokenManager.visitToken).thenAnswer((_) async => 'visitToken');
 
-      // Mock the HTTP client to return a successful response
       when(
-        mockHttpClient.post(
-          any as dynamic,
-          headers: anyNamed('headers'),
-          body: anyNamed('body'),
-        ),
+        mockHttpClient.send(any),
       ).thenAnswer(
-        (_) async => http.Response(
-          '{"visitor_token": "visitorToken", "visit_token": "visitToken"}',
+        (_) async => http.StreamedResponse(
+          Stream.value(
+            const JsonEncoder().convert({
+              "visitor_token": "visitorToken",
+              "visit_token": "visitToken",
+            }).codeUnits,
+          ),
           200,
         ),
       );
 
-      // Replace the default HTTP client with the mock
+      await ahoy.trackVisit();
 
-      // Track a single event
-      ahoy.trackSingle('eventName');
-      // Add assertions here to verify the event was tracked correctly
+      await ahoy.trackSingle('eventName');
+
+      verify(mockHttpClient.send(any)).called(2);
     });
 
     test('authenticate should update the currentVisit with the provided userId',
         () async {
-      // Mock the token manager to return a fixed token
       when(mockTokenManager.visitorToken)
           .thenAnswer((_) async => 'visitorToken');
       when(mockTokenManager.visitToken).thenAnswer((_) async => 'visitToken');
 
-      // Authenticate a user
-      ahoy.authenticate('userId');
+      when(
+        mockHttpClient.send(any),
+      ).thenAnswer(
+        (_) async => http.StreamedResponse(
+          Stream.value(
+            const JsonEncoder().convert({}).codeUnits,
+          ),
+          200,
+        ),
+      );
 
-      // Verify the currentVisit was updated
+      await ahoy.trackVisit();
+
+      await ahoy.authenticate('userId');
+
       expect(ahoy.currentVisit?.userId, 'userId');
     });
   });
