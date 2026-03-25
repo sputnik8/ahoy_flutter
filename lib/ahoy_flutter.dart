@@ -8,6 +8,7 @@ export 'src/managers/event_queue.dart';
 export 'src/managers/event_storage.dart';
 export 'src/models/queued_event.dart';
 export 'src/network/ahoy_http_client.dart';
+export 'src/models/proxy_configuration.dart';
 export 'src/network/request_interceptor.dart';
 export 'src/managers/token_manager.dart';
 export 'src/models/visit.dart';
@@ -23,6 +24,7 @@ import 'package:ahoy_flutter/src/dtos/visit_request_input.dart';
 import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
 import 'package:ahoy_flutter/src/models/configuration.dart';
 import 'package:ahoy_flutter/src/models/event.dart';
+import 'package:ahoy_flutter/src/models/proxy_configuration.dart';
 import 'package:ahoy_flutter/src/managers/event_queue.dart';
 import 'package:ahoy_flutter/src/managers/event_storage.dart';
 import 'package:ahoy_flutter/src/models/queued_event.dart';
@@ -37,6 +39,7 @@ class Ahoy {
   Visit? _currentVisit;
   Timer? _visitExpirationTimer;
   Timer? _flushTimer;
+  bool _isFlushing = false;
   late final EventQueue _eventQueue;
   bool _isInitialized = false;
 
@@ -61,6 +64,7 @@ class Ahoy {
     AhoyTokenManager? tokenStorage,
     AhoyHttpClient? httpClient,
     EventStorage? eventStorage,
+    ProxyConfiguration? proxyConfiguration,
   })  : storage = tokenStorage ??
             TokenManager(expiryPeriod: configuration.visitDuration),
         _httpClient = httpClient ??
@@ -68,6 +72,7 @@ class Ahoy {
               configuration: configuration,
               headers: headers,
               interceptors: requestInterceptors,
+              proxyConfiguration: proxyConfiguration,
             ) {
     _eventQueue = EventQueue(storage: eventStorage);
   }
@@ -205,35 +210,41 @@ class Ahoy {
   }
 
   Future<void> flush() async {
+    if (_isFlushing) return;
     if (_eventQueue.isEmpty) {
       log('No events to flush', name: 'Ahoy');
       return;
     }
 
-    final events = _eventQueue.pendingEvents.toList();
-    log('Flushing ${events.length} events', name: 'Ahoy');
+    _isFlushing = true;
+    try {
+      final events = _eventQueue.pendingEvents.toList();
+      log('Flushing ${events.length} events', name: 'Ahoy');
 
-    final groupedByVisit = events.groupListsBy(
-      (event) => '${event.visitorToken}:${event.visitToken}',
-    );
+      final groupedByVisit = events.groupListsBy(
+        (event) => '${event.visitorToken}:${event.visitToken}',
+      );
 
-    final successfulIds = <String>[];
-    final failedEvents = <QueuedEvent>[];
+      final successfulIds = <String>[];
+      final failedEvents = <QueuedEvent>[];
 
-    for (final batchEvents in groupedByVisit.values) {
-      final sentIds = await _sendBatchForVisit(batchEvents);
-      if (sentIds != null) {
-        successfulIds.addAll(sentIds);
-      } else {
-        failedEvents.addAll(batchEvents);
+      for (final batchEvents in groupedByVisit.values) {
+        final sentIds = await _sendBatchForVisit(batchEvents);
+        if (sentIds != null) {
+          successfulIds.addAll(sentIds);
+        } else {
+          failedEvents.addAll(batchEvents);
+        }
       }
-    }
 
-    if (successfulIds.isNotEmpty) {
-      await _eventQueue.removeEvents(successfulIds);
-    }
+      if (successfulIds.isNotEmpty) {
+        await _eventQueue.removeEvents(successfulIds);
+      }
 
-    await _handleFailedEvents(failedEvents);
+      await _handleFailedEvents(failedEvents);
+    } finally {
+      _isFlushing = false;
+    }
   }
 
   Future<List<String>?> _sendBatchForVisit(
@@ -345,8 +356,18 @@ class Ahoy {
   void _startFlushTimer() {
     if (!configuration.batchConfig.enabled) return;
     _flushTimer?.cancel();
-    _flushTimer = Timer.periodic(configuration.batchConfig.flushInterval, (_) {
-      flush();
+    _flushTimer =
+        Timer.periodic(configuration.batchConfig.flushInterval, (_) async {
+      try {
+        await flush();
+      } catch (e, stackTrace) {
+        log(
+          'Error during scheduled flush: $e',
+          name: 'Ahoy',
+          error: e,
+          stackTrace: stackTrace,
+        );
+      }
     });
   }
 

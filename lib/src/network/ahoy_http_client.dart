@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:ahoy_flutter/src/models/configuration.dart';
+import 'package:ahoy_flutter/src/models/proxy_configuration.dart';
 import 'package:ahoy_flutter/src/network/request_interceptor.dart';
 import 'package:http/http.dart';
+import 'package:http/io_client.dart';
 
 class AhoyHttpClient {
   final Configuration configuration;
@@ -13,7 +17,22 @@ class AhoyHttpClient {
     this.headers = const {},
     this.interceptors = const [],
     Client? client,
-  }) : _client = client ?? Client();
+    ProxyConfiguration? proxyConfiguration,
+  }) : _client = client ?? _createClient(proxyConfiguration);
+
+  static Client _createClient(ProxyConfiguration? proxyConfiguration) {
+    if (proxyConfiguration == null) return Client();
+
+    final httpClient = HttpClient()
+      ..findProxy = (uri) =>
+          'PROXY ${proxyConfiguration.host}:${proxyConfiguration.port}';
+
+    if (proxyConfiguration.allowBadCertificates) {
+      httpClient.badCertificateCallback = (cert, host, port) => true;
+    }
+
+    return IOClient(httpClient);
+  }
 
   Future<Response> post({
     required String path,
