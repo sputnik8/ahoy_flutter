@@ -168,13 +168,13 @@ class Ahoy {
     }
   }
 
-  Future<void> track(List<Event> events) async {
+  Future<void> track(List<Event> events, {bool sendImmediately = false}) async {
     if (currentVisit == null) {
       log('Error: No Visit Found', name: 'Ahoy');
       throw NoVisitError();
     }
 
-    if (!configuration.batchConfig.enabled) {
+    if (!configuration.batchConfig.enabled || sendImmediately) {
       return _sendEventsImmediately(events);
     }
 
@@ -199,14 +199,18 @@ class Ahoy {
   Future<void> trackSingle(
     String eventName, {
     Map<String, dynamic>? properties,
+    bool sendImmediately = false,
   }) async {
-    await track([
-      Event(
-        name: eventName,
-        properties: properties ?? {},
-        platform: configuration.environment.platform,
-      ),
-    ]);
+    await track(
+      [
+        Event(
+          name: eventName,
+          properties: properties ?? {},
+          platform: configuration.environment.platform,
+        ),
+      ],
+      sendImmediately: sendImmediately,
+    );
   }
 
   Future<void> flush() async {

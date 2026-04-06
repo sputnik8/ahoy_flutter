@@ -1,8 +1,7 @@
 name: ahoy_flutter
 description: "Flutter implementation of Ahoy library"
-version: 1.2.0+9
+version: 1.2.1+10
 publish_to: "none"
-
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
