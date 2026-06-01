@@ -9,6 +9,7 @@ class Configuration {
   final String authenticationPath;
   final String eventsPath;
   final String visitsPath;
+  final String updateAttributionPath;
   final String userAgent;
   final Duration visitDuration;
   final BatchConfig batchConfig;
@@ -23,6 +24,7 @@ class Configuration {
     this.scheme = 'https',
     this.userAgent = 'Ahoy Flutter',
     this.visitsPath = 'visits',
+    this.updateAttributionPath = 'visits/current/update_attribution',
     this.visitDuration = const Duration(hours: 4),
     this.batchConfig = const BatchConfig(),
   });

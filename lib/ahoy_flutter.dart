@@ -20,6 +20,7 @@ import 'dart:developer';
 
 import 'package:collection/collection.dart';
 
+import 'package:ahoy_flutter/src/dtos/update_attribution_request_input.dart';
 import 'package:ahoy_flutter/src/dtos/visit_request_input.dart';
 import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
 import 'package:ahoy_flutter/src/models/configuration.dart';
@@ -293,6 +294,61 @@ class Ahoy {
       } else {
         await _eventQueue.updateRetryCount(event.id, newRetryCount);
       }
+    }
+  }
+
+  Future<Visit> updateVisitAttribution({
+    String? landingPage,
+    String? utmSource,
+    String? utmMedium,
+    String? utmTerm,
+    String? utmCampaign,
+    Map<String, dynamic>? additionalParams,
+  }) async {
+    if (currentVisit == null) {
+      log('Error: No Visit Found', name: 'Ahoy');
+      throw NoVisitError();
+    }
+
+    final params = UpdateAttributionRequestInput(
+      visitToken: currentVisit!.visitToken,
+      landingPage: landingPage,
+      utmSource: utmSource,
+      utmMedium: utmMedium,
+      utmTerm: utmTerm,
+      utmCampaign: utmCampaign,
+      additionalParams: additionalParams,
+    ).toJson();
+
+    try {
+      final response = validateResponse(
+        await _httpClient.post(
+          path: configuration.updateAttributionPath,
+          body: json.encode(params),
+        ),
+      );
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+      final mergedAdditionalParams = {
+        ...?currentVisit!.additionalParams,
+        ...?additionalParams,
+      };
+      final updatedVisit = Visit.fromJson(responseData).copyWith(
+        additionalParams:
+            mergedAdditionalParams.isEmpty ? null : mergedAdditionalParams,
+      );
+
+      _currentVisit = updatedVisit;
+      log('Visit attribution updated: ${currentVisit?.toJson()}', name: 'Ahoy');
+      return currentVisit!;
+    } on UnacceptableResponseError catch (e) {
+      if (e.code == 422) {
+        log('Error: Visit attribution not updated', name: 'Ahoy');
+        throw MismatchingVisitError();
+      }
+      log('Error: Visit attribution not updated', name: 'Ahoy');
+      log('Response: ${e.data}', name: 'Ahoy');
+      rethrow;
     }
   }
 
