@@ -1,6 +1,6 @@
 name: ahoy_flutter
 description: "Flutter implementation of Ahoy library"
-version: 1.2.1+10
+version: 1.2.2+11
 publish_to: "none"
 
 environment:
