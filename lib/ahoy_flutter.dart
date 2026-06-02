@@ -297,7 +297,7 @@ class Ahoy {
     }
   }
 
-  Future<Visit> updateVisitAttribution({
+  Future<void> updateVisitAttribution({
     String? landingPage,
     String? utmSource,
     String? utmMedium,
@@ -321,26 +321,25 @@ class Ahoy {
     ).toJson();
 
     try {
-      final response = validateResponse(
+      validateResponse(
         await _httpClient.post(
           path: configuration.updateAttributionPath,
           body: json.encode(params),
         ),
       );
 
-      final responseData = json.decode(response.body) as Map<String, dynamic>;
       final mergedAdditionalParams = {
         ...?currentVisit!.additionalParams,
         ...?additionalParams,
       };
-      final updatedVisit = Visit.fromJson(responseData).copyWith(
+
+      final updatedVisit = currentVisit?.copyWith(
         additionalParams:
             mergedAdditionalParams.isEmpty ? null : mergedAdditionalParams,
       );
 
       _currentVisit = updatedVisit;
       log('Visit attribution updated: ${currentVisit?.toJson()}', name: 'Ahoy');
-      return currentVisit!;
     } on UnacceptableResponseError catch (e) {
       if (e.code == 422) {
         log('Error: Visit attribution not updated', name: 'Ahoy');
