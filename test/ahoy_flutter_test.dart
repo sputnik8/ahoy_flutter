@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'ahoy_flutter_test.mocks.dart';
 
@@ -150,6 +151,22 @@ void main() {
       await ahoy.authenticate('userId');
 
       expect(ahoy.currentVisit?.userId, 'userId');
+    });
+  });
+
+  group('TokenManager', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    test('resetVisitToken creates a new visit token', () async {
+      const tokenManager = TokenManager();
+
+      final firstToken = await tokenManager.visitToken;
+      await tokenManager.resetVisitToken();
+      final secondToken = await tokenManager.visitToken;
+
+      expect(secondToken, isNot(firstToken));
     });
   });
 }

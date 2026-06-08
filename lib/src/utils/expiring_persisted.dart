@@ -86,6 +86,11 @@ class ExpiringPersistedUuid {
     _cache.clear();
     _pendingRequests.clear();
   }
+
+  static void clearCacheForKey(String key) {
+    _cache.remove(key);
+    _pendingRequests.remove(key);
+  }
 }
 
 class _CachedValue {
