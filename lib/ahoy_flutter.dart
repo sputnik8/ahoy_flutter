@@ -303,7 +303,7 @@ class Ahoy {
     String? utmMedium,
     String? utmTerm,
     String? utmCampaign,
-    Map<String, dynamic>? additionalParams,
+    Map<String, String>? additionalHeaders,
   }) async {
     if (currentVisit == null) {
       log('Error: No Visit Found', name: 'Ahoy');
@@ -317,28 +317,18 @@ class Ahoy {
       utmMedium: utmMedium,
       utmTerm: utmTerm,
       utmCampaign: utmCampaign,
-      additionalParams: additionalParams,
     ).toJson();
 
     try {
       validateResponse(
-        await _httpClient.post(
+        await _httpClient.patch(
           path: configuration.updateAttributionPath,
           body: json.encode(params),
+          additionalHeaders: additionalHeaders,
+          customPath: true,
         ),
       );
 
-      final mergedAdditionalParams = {
-        ...?currentVisit!.additionalParams,
-        ...?additionalParams,
-      };
-
-      final updatedVisit = currentVisit?.copyWith(
-        additionalParams:
-            mergedAdditionalParams.isEmpty ? null : mergedAdditionalParams,
-      );
-
-      _currentVisit = updatedVisit;
       log('Visit attribution updated: ${currentVisit?.toJson()}', name: 'Ahoy');
     } on UnacceptableResponseError catch (e) {
       if (e.code == 422) {

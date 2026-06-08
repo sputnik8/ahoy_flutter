@@ -10,7 +10,6 @@ class UpdateAttributionRequestInput {
   final String? utmMedium;
   final String? utmTerm;
   final String? utmCampaign;
-  final Map<String, dynamic>? additionalParams;
 
   UpdateAttributionRequestInput({
     required this.visitToken,
@@ -19,7 +18,6 @@ class UpdateAttributionRequestInput {
     this.utmMedium,
     this.utmTerm,
     this.utmCampaign,
-    this.additionalParams,
   });
 
   factory UpdateAttributionRequestInput.fromJson(Map<String, dynamic> json) =>

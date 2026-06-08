@@ -24,7 +24,8 @@ class Configuration {
     this.scheme = 'https',
     this.userAgent = 'Ahoy Flutter',
     this.visitsPath = 'visits',
-    this.updateAttributionPath = 'visits/current/update_attribution',
+    this.updateAttributionPath =
+        '/mobile/v1/ahoy/visits/current/update_attribution',
     this.visitDuration = const Duration(hours: 4),
     this.batchConfig = const BatchConfig(),
   });

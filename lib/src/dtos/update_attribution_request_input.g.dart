@@ -15,7 +15,6 @@ UpdateAttributionRequestInput _$UpdateAttributionRequestInputFromJson(
       utmMedium: json['utm_medium'] as String?,
       utmTerm: json['utm_term'] as String?,
       utmCampaign: json['utm_campaign'] as String?,
-      additionalParams: json['additional_params'] as Map<String, dynamic>?,
     );
 
 Map<String, dynamic> _$UpdateAttributionRequestInputToJson(
@@ -27,6 +26,4 @@ Map<String, dynamic> _$UpdateAttributionRequestInputToJson(
       if (instance.utmMedium case final value?) 'utm_medium': value,
       if (instance.utmTerm case final value?) 'utm_term': value,
       if (instance.utmCampaign case final value?) 'utm_campaign': value,
-      if (instance.additionalParams case final value?)
-        'additional_params': value,
     };
