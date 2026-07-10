@@ -39,23 +39,59 @@ class AhoyHttpClient {
     String? body,
     Map<String, String>? additionalHeaders,
     Map<String, dynamic>? queryParameters,
+    bool customPath = false,
+  }) {
+    return _sendRequest(
+      method: 'POST',
+      path: path,
+      body: body,
+      additionalHeaders: additionalHeaders,
+      queryParameters: queryParameters,
+      customPath: customPath,
+    );
+  }
+
+  Future<Response> patch({
+    required String path,
+    String? body,
+    Map<String, String>? additionalHeaders,
+    Map<String, dynamic>? queryParameters,
+    bool customPath = false,
+  }) {
+    return _sendRequest(
+      method: 'PATCH',
+      path: path,
+      body: body,
+      additionalHeaders: additionalHeaders,
+      queryParameters: queryParameters,
+      customPath: customPath,
+    );
+  }
+
+  Future<Response> _sendRequest({
+    required String method,
+    required String path,
+    String? body,
+    Map<String, String>? additionalHeaders,
+    Map<String, dynamic>? queryParameters,
+    bool customPath = false,
   }) async {
     final uri = Uri(
       scheme: configuration.scheme,
       host: configuration.baseUrl,
       port: configuration.port,
-      path: '${configuration.ahoyPath}/$path',
+      path: customPath ? path : '${configuration.ahoyPath}/$path',
       queryParameters: queryParameters,
     );
 
-    final request = Request('POST', uri);
+    final request = Request(method, uri);
+
     if (body != null) {
       request.body = body;
     }
 
     request.headers['User-Agent'] = configuration.userAgent;
     request.headers['Content-Type'] = 'application/json';
-
     request.headers.addAll(headers);
 
     if (additionalHeaders != null) {
@@ -67,6 +103,7 @@ class AhoyHttpClient {
     }
 
     final streamedResponse = await _client.send(request);
+
     return Response.fromStream(streamedResponse);
   }
 

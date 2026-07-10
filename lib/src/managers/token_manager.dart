@@ -2,6 +2,8 @@ import 'package:ahoy_flutter/src/utils/expiring_persisted.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+const ahoyVisitTokenKey = 'ahoy_visit_token';
+
 sealed class AhoyTokenManager {
   Future<String> get visitToken;
   Future<String> get visitorToken;
@@ -16,7 +18,7 @@ class TokenManager extends AhoyTokenManager {
   @override
   Future<String> get visitToken async {
     return await ExpiringPersistedUuid(
-      key: 'ahoy_visit_token',
+      key: ahoyVisitTokenKey,
       expiryPeriod: expiryPeriod,
     ).value;
   }
@@ -37,6 +39,7 @@ class TokenManager extends AhoyTokenManager {
   @override
   Future<void> resetVisitToken() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('ahoy_visit_token');
+    await prefs.remove(ahoyVisitTokenKey);
+    ExpiringPersistedUuid.clearCacheForKey(ahoyVisitTokenKey);
   }
 }

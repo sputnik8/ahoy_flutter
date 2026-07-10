@@ -20,6 +20,7 @@ import 'dart:developer';
 
 import 'package:collection/collection.dart';
 
+import 'package:ahoy_flutter/src/dtos/update_attribution_request_input.dart';
 import 'package:ahoy_flutter/src/dtos/visit_request_input.dart';
 import 'package:ahoy_flutter/src/exceptions/ahoy_error.dart';
 import 'package:ahoy_flutter/src/models/configuration.dart';
@@ -293,6 +294,50 @@ class Ahoy {
       } else {
         await _eventQueue.updateRetryCount(event.id, newRetryCount);
       }
+    }
+  }
+
+  Future<void> updateVisitAttribution({
+    String? landingPage,
+    String? utmSource,
+    String? utmMedium,
+    String? utmTerm,
+    String? utmCampaign,
+    Map<String, String>? additionalHeaders,
+  }) async {
+    if (currentVisit == null) {
+      log('Error: No Visit Found', name: 'Ahoy');
+      throw NoVisitError();
+    }
+
+    final params = UpdateAttributionRequestInput(
+      visitToken: currentVisit!.visitToken,
+      landingPage: landingPage,
+      utmSource: utmSource,
+      utmMedium: utmMedium,
+      utmTerm: utmTerm,
+      utmCampaign: utmCampaign,
+    ).toJson();
+
+    try {
+      validateResponse(
+        await _httpClient.patch(
+          path: configuration.updateAttributionPath,
+          body: json.encode(params),
+          additionalHeaders: additionalHeaders,
+          customPath: true,
+        ),
+      );
+
+      log('Visit attribution updated: ${currentVisit?.toJson()}', name: 'Ahoy');
+    } on UnacceptableResponseError catch (e) {
+      if (e.code == 422) {
+        log('Error: Visit attribution not updated', name: 'Ahoy');
+        throw MismatchingVisitError();
+      }
+      log('Error: Visit attribution not updated', name: 'Ahoy');
+      log('Response: ${e.data}', name: 'Ahoy');
+      rethrow;
     }
   }
 
