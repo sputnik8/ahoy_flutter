@@ -148,7 +148,7 @@ void main() {
 
       await ahoy.trackVisit();
 
-      await ahoy.authenticate('userId');
+      await ahoy.authenticate(1);
 
       expect(ahoy.currentVisit?.userId, 'userId');
     });
