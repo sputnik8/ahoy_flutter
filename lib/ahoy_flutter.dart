@@ -341,7 +341,7 @@ class Ahoy {
     }
   }
 
-  Future<void> authenticate(String userId) async {
+  Future<void> authenticate(int userId) async {
     if (currentVisit == null) {
       log('Error: No Visit Found', name: 'Ahoy');
       throw NoVisitError();
@@ -359,7 +359,7 @@ class Ahoy {
       ),
     );
 
-    _currentVisit = _currentVisit?.copyWith(userId: userId);
+    _currentVisit = _currentVisit?.copyWith(userId: userId.toString());
     log('Visit authenticated: $userId', name: 'Ahoy');
     log('Response: ${response.body}', name: 'Ahoy');
   }
