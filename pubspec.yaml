@@ -1,6 +1,6 @@
 name: ahoy_flutter
 description: "Flutter implementation of Ahoy library"
-version: 1.2.2+12
+version: 1.2.2+13
 publish_to: "none"
 
 environment:
@@ -8,21 +8,21 @@ environment:
   flutter: ">=3.24.0"
 
 dependencies:
-  collection: ^1.18.0
+  collection: ^1.19.1
   flutter:
     sdk: flutter
   http: ^1.2.0
-  json_annotation: ^4.8.1
-  rxdart: ^0.27.7
-  shared_preferences: ^2.2.2
+  json_annotation: ^4.12.0
+  rxdart: ^0.28.0
+  shared_preferences: ^2.5.5
   uuid: ^4.3.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.2
-  build_runner: ^2.4.8
-  json_serializable: ^6.7.1
+  build_runner: ^2.16.1
+  json_serializable: ^6.14.1
   mockito: ^5.4.4
 
 flutter:
